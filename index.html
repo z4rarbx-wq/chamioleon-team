@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Chamioleon Team - Art Studio</title>
+
+<style>
+body{
+margin:0;
+background:#1e1e1e;
+color:white;
+font-family:Arial;
+display:flex;
+flex-direction:column;
+align-items:center;
+}
+
+.header{
+font-size:22px;
+margin:10px;
+font-weight:bold;
+}
+
+.toolbar{
+margin:10px;
+padding:10px;
+background:#2b2b2b;
+border-radius:10px;
+display:flex;
+flex-wrap:wrap;
+gap:8px;
+align-items:center;
+}
+
+#canvasArea{
+width:900px;
+height:500px;
+background:white;
+border-radius:10px;
+border:2px solid #444;
+position:relative;
+overflow:hidden;
+}
+
+canvas{
+position:absolute;
+top:0;
+left:0;
+cursor:crosshair;
+}
+
+#layers{
+width:900px;
+margin-top:10px;
+background:#2b2b2b;
+padding:10px;
+border-radius:10px;
+}
+
+.layerRow{
+display:flex;
+gap:5px;
+align-items:center;
+margin:5px 0;
+}
+
+#gallery{
+width:900px;
+margin-top:20px;
+background:#2b2b2b;
+padding:10px;
+border-radius:10px;
+}
+
+.post{
+background:#3a3a3a;
+padding:10px;
+margin:10px 0;
+border-radius:8px;
+}
+
+button,input,select{
+padding:6px;
+border:none;
+border-radius:6px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">🦎 Chamioleon Team Art Studio</div>
+
+<div class="toolbar">
+
+<input type="color" id="color" value="#000000">
+<input type="range" id="size" min="1" max="80" value="5">
+
+<select id="brush">
+<option value="pen">Pen</option>
+<option value="pencil">Pencil</option>
+<option value="marker">Marker</option>
+<option value="airbrush">Airbrush</option>
+<option value="eraser">Eraser</option>
+</select>
+
+<button onclick="addLayer()">+ Layer</button>
+<button onclick="undo()">Undo</button>
+<button onclick="redo()">Redo</button>
+
+<button onclick="toggleSymmetry()">Symmetry</button>
+
+<!-- POST FEATURE -->
+<input type="text" id="postName" placeholder="Name your artwork">
+<button onclick="postArt()">Post Art</button>
+
+</div>
+
+<div id="canvasArea"></div>
+<div id="layers"></div>
+
+<!-- COMMUNITY GALLERY -->
+<div id="gallery">
+<h3>🌍 Chamioleon Team Gallery</h3>
+</div>
+
+<script>
+
+const W=900,H=500;
+
+/* ---------------- STATE ---------------- */
+
+let canvases=[createCanvas()];
+let canvasIndex=0;
+
+let drawing=false;
+let last=null;
+let symmetry=false;
+
+/* ---------------- CANVAS ---------------- */
+
+function createCanvas(){
+return {
+layers:[createLayer()],
+activeLayer:0,
+history:[],
+redo:[]
+};
+}
+
+function C(){return canvases[canvasIndex];}
+
+/* ---------------- LAYERS ---------------- */
+
+function createLayer(){
+
+const c=document.createElement("canvas");
+c.width=W;c.height=H;
+bind(c);
+
+return {
+canvas:c,
+opacity:1
+};
+}
+
+function addLayer(){
+C().layers.push(createLayer());
+render();
+}
+
+/* ---------------- RENDER ---------------- */
+
+function render(){
+
+const area=document.getElementById("canvasArea");
+const layerUI=document.getElementById("layers");
+
+area.innerHTML="";
+layerUI.innerHTML="";
+
+const c=C();
+
+c.layers.forEach((l,i)=>{
+
+l.canvas.style.opacity=l.opacity;
+area.appendChild(l.canvas);
+
+const row=document.createElement("div");
+row.className="layerRow";
+
+const btn=document.createElement("button");
+btn.innerText="Layer "+(i+1);
+btn.onclick=()=>c.activeLayer=i;
+
+const op=document.createElement("input");
+op.type="range";
+op.min=0;
+op.max=1;
+op.step=0.05;
+op.value=l.opacity;
+
+op.oninput=()=>l.opacity=op.value;
+
+row.appendChild(btn);
+row.appendChild(op);
+
+layerUI.appendChild(row);
+});
+}
+
+/* ---------------- DRAW ---------------- */
+
+function bind(c){
+c.onmousedown=start;
+c.onmouseup=end;
+c.onmouseleave=end;
+c.onmousemove=draw;
+}
+
+function L(){
+return C().layers[C().activeLayer];
+}
+
+function start(e){
+drawing=true;
+save();
+L().canvas.getContext("2d").beginPath();
+draw(e);
+}
+
+function end(){
+drawing=false;
+last=null;
+}
+
+function draw(e){
+
+if(!drawing)return;
+
+const l=L();
+const ctx=l.canvas.getContext("2d");
+
+const r=l.canvas.getBoundingClientRect();
+
+let x=e.clientX-r.left;
+let y=e.clientY-r.top;
+
+const brush=document.getElementById("brush").value;
+const size=parseInt(document.getElementById("size").value);
+
+ctx.lineWidth=size;
+ctx.lineCap="round";
+
+if(brush==="eraser"){
+ctx.globalCompositeOperation="destination-out";
+ctx.globalAlpha=1;
+}else{
+ctx.globalCompositeOperation="source-over";
+ctx.strokeStyle=document.getElementById("color").value;
+
+if(brush==="marker")ctx.globalAlpha=0.5;
+else if(brush==="airbrush")ctx.globalAlpha=0.15;
+else if(brush==="pencil")ctx.globalAlpha=0.7;
+else ctx.globalAlpha=1;
+}
+
+ctx.lineTo(x,y);
+ctx.stroke();
+ctx.beginPath();
+ctx.moveTo(x,y);
+
+if(symmetry){
+ctx.lineTo(W-x,y);
+ctx.stroke();
+ctx.beginPath();
+ctx.moveTo(W-x,y);
+}
+
+last={x,y};
+}
+
+/* ---------------- UNDO / REDO ---------------- */
+
+function save(){
+const c=C();
+const snap=c.layers.map(l=>l.canvas.toDataURL());
+c.history.push(snap);
+c.redo=[];
+}
+
+function undo(){
+const c=C();
+if(c.history.length<2)return;
+c.redo.push(c.history.pop());
+restore(c.history[c.history.length-1]);
+}
+
+function redo(){
+const c=C();
+if(!c.redo.length)return;
+const s=c.redo.pop();
+c.history.push(s);
+restore(s);
+}
+
+function restore(state){
+
+const c=C();
+
+c.layers.forEach((l,i)=>{
+
+const img=new Image();
+img.src=state[i];
+
+img.onload=()=>{
+const ctx=l.canvas.getContext("2d");
+ctx.clearRect(0,0,W,H);
+ctx.drawImage(img,0,0);
+};
+});
+}
+
+/* ---------------- SYMMETRY ---------------- */
+
+function toggleSymmetry(){
+symmetry=!symmetry;
+}
+
+/* ---------------- POST SYSTEM ---------------- */
+
+function postArt(){
+
+const name=document.getElementById("postName").value || "Untitled";
+
+const c=C();
+
+/* merge layers into one image */
+const temp=document.createElement("canvas");
+temp.width=W;
+temp.height=H;
+
+const ctx=temp.getContext("2d");
+
+c.layers.forEach(l=>{
+ctx.drawImage(l.canvas,0,0);
+});
+
+const img=temp.toDataURL();
+
+/* save to localStorage */
+let posts=JSON.parse(localStorage.getItem("chamioleonPosts")||"[]");
+
+posts.unshift({
+name,
+image:img,
+time:new Date().toLocaleString()
+});
+
+localStorage.setItem("chamioleonPosts",JSON.stringify(posts));
+
+renderGallery();
+}
+
+/* ---------------- GALLERY ---------------- */
+
+function renderGallery(){
+
+const g=document.getElementById("gallery");
+
+let posts=JSON.parse(localStorage.getItem("chamioleonPosts")||"[]");
+
+g.innerHTML="<h3>🌍 Chamioleon Team Gallery</h3>";
+
+posts.forEach(p=>{
+
+const div=document.createElement("div");
+div.className="post";
+
+div.innerHTML=`
+<strong>${p.name}</strong><br>
+<small>${p.time}</small><br>
+<img src="${p.image}" width="200">
+`;
+
+g.appendChild(div);
+});
+}
+
+/* ---------------- START ---------------- */
+
+render();
+renderGallery();
+
+</script>
+
+</body>
+</html>
